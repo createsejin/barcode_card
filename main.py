@@ -88,28 +88,33 @@ def draw_inkscape_text(dwg, text, x, y, font):
     dwg.add(text_element)
 
 
-def create_barcode_clean():
-    filename = "barcode_clean2.svg"
-
-    dwg = svgwrite.Drawing(
-        filename, size=("210mm", "297mm"), viewBox="0 0 793.70076 1122.5197"
-    )
-
-    # [상수 정의] 96 DPI 기준 1mm당 픽셀 값 (Inkscape 기본 단위)
+# =========================================================================
+# 3. [핵심] 오프셋을 받아 개별 카드를 생성하는 컴포넌트 함수
+# =========================================================================
+def draw_single_card_component(dwg, name, name_code, rt_code, offset_x, offset_y):
+    """
+    기본 1번 카드 레이아웃 수식에 외부 격자 이동 거리(offset)를 더해 카드를 그립니다.
+    """
     MM_TO_PX = 3.77952756
+    stroke_w_px = 0.099 * MM_TO_PX  # 약 0.37417 px
 
-    # 2. 외곽 커팅선 x, y 위치
-    card_x = 78.271
-    card_y = 40.988
-    card_w = 324.475
-    card_h = 203.566
-    stroke_w_px = 0.099 * MM_TO_PX
+    # [기본 카드 치수 정의]
+    base_card_x = 78.271
+    base_card_y = 40.988
+    base_card_w = 324.475
+    base_card_h = 203.566
 
-    # Inkscape 가시 상자 크기에 맞추기 위해, 내부 선 중심 좌표 및 크기 계산
+    # 오프셋이 적용된 실제 사각형 시작 좌표 계산
+    card_x = base_card_x + offset_x
+    card_y = base_card_y + offset_y
+
+    # Inkscape Cutting 박스 보정 공식 유지
     adjusted_x = card_x + (stroke_w_px / 2)
     adjusted_y = card_y + (stroke_w_px / 2)
-    adjusted_w = card_w - stroke_w_px
-    adjusted_h = card_h - stroke_w_px
+    adjusted_w = base_card_w - stroke_w_px
+    adjusted_h = base_card_h - stroke_w_px
+
+    # 1. 외곽선 추가
     dwg.add(
         dwg.rect(
             insert=(adjusted_x, adjusted_y),
@@ -120,23 +125,53 @@ def create_barcode_clean():
         )
     )
 
-    # rolltainer barcode
+    # 2. 대차 코드 바코드 (상대 간격 반영)
     draw_inkscape_barcode(
-        dwg=dwg, code="00000040", x=104.358, y=49.240, w=259.907, h=55.963
+        dwg=dwg,
+        code=rt_code,
+        x=card_x + (104.358 - base_card_x),
+        y=card_y + (49.240 - base_card_y),
+        w=259.907,
+        h=55.963,
     )
 
-    # worker barcode
+    # 3. 작업자 코드 바코드 (상대 간격 반영)
     draw_inkscape_barcode(
-        dwg=dwg, code="A300011", x=106.652, y=212.255, w=119.267, h=21.725
+        dwg=dwg,
+        code=name_code,
+        x=card_x + (106.652 - base_card_x),
+        y=card_y + (212.255 - base_card_y),
+        w=119.267,
+        h=21.725,
     )
 
-    # rolltainer code text
+    # 4. 대차 코드 텍스트 (상대 간격 반영)
     draw_inkscape_text(
-        dwg=dwg, text="00000040", x=231.37704, y=127.08455, font="sans-serif"
+        dwg=dwg,
+        text=rt_code,
+        x=card_x + (231.37704 - base_card_x),
+        y=card_y + (127.08455 - base_card_y),
+        font="sans-serif",
     )
 
-    # name text
-    draw_inkscape_text(dwg=dwg, text="김종건", x=276.37198, y=231.96967, font="NSimSun")
+    # 5. 이름 텍스트 (상대 간격 반영)
+    draw_inkscape_text(
+        dwg=dwg,
+        text=name,
+        x=card_x + (276.37198 - base_card_x),
+        y=card_y + (231.96967 - base_card_y),
+        font="NSimSun",
+    )
+
+
+def create_barcode_clean():
+    filename = "barcode_clean2.svg"
+
+    dwg = svgwrite.Drawing(
+        filename, size=("210mm", "297mm"), viewBox="0 0 793.70076 1122.5197"
+    )
+
+    draw_single_card_component(dwg, "김종건", "A300013", "00000003", 0, 0)
 
     # [코드 미화 작업] 코드를 분석하기 편하게 들여쓰기(Indent)하여 저장
     raw_svg_string = dwg.tostring()  # 순수 XML 문자열 추출
