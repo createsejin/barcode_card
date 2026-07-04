@@ -1,3 +1,4 @@
+import csv
 import svgwrite
 from barcode import Code128
 from barcode.writer import SVGWriter
@@ -163,8 +164,74 @@ def draw_single_card_component(dwg, name, name_code, rt_code, offset_x, offset_y
         font="NSimSun",
     )
 
+def generate_barcode_pages_from_csv(csv_file_path):
+    """
+    롤테이너 코드가 포함된 CSV 파일을 읽어 출근 여부가 1인 작업자만 
+    필터링하여 2x5 배열 페이지를 생성하는 함수
+    """
+    MM_TO_PX = 3.77952756
+    stroke_w_px = 0.099 * MM_TO_PX  # 약 0.37417 px
 
-def create_barcode_clean():
+    # 커팅선이 정확하게 포개어지도록 격자 이동 간격 설정
+    card_step_w = 324.475 - stroke_w_px
+    card_step_h = 203.566 - stroke_w_px
+
+    # 1. CSV 파일 읽기 및 데이터 필터링
+    active_workers = []
+    
+    with open(csv_file_path, mode='r', encoding='utf-8') as f:
+        reader = csv.DictReader(f)
+        
+        for row in reader:
+            # '출근 여부'가 '1'인 사람만 리스트에 담음
+            is_active = row.get('출근 여부', '').strip()
+            if is_active == '1':
+                # [수정 포인트] 롤테이너 코드를 숫자로만 처리하거나 8자리 고정 형태로 맞추기 위해
+                # zfill(8)을 사용해 입력값이 '1'이면 '00000001'로 포맷을 자동 변환합니다.
+                raw_rt_code = row.get('롤테이너 코드', '').strip()
+                formatted_rt_code = raw_rt_code.zfill(8) if raw_rt_code.isdigit() else raw_rt_code
+
+                active_workers.append({
+                    'name': row.get('성명', '').strip(),
+                    'name_code': row.get('작업자 코드', '').strip(),
+                    'rt_code': formatted_rt_code  # ◀ 파싱 및 변환된 롤테이너 코드 적용
+                })
+
+    # 2. 데이터를 5명씩 분할 (한 페이지당 세로 5줄 배치)
+    chunked_pages = [active_workers[i:i + 5] for i in range(0, len(active_workers), 5)]
+
+    # 3. 페이지별 SVG 도화지 생성 및 배치 루프
+    for page_idx, page_data in enumerate(chunked_pages):
+        filename = f"barcode_page_{page_idx + 1}.svg"
+        dwg = svgwrite.Drawing(filename, size=('210mm', '297mm'), viewBox="0 0 793.70076 1122.5197")
+
+        for row_idx, person in enumerate(page_data):
+            # 데이터 1개당 좌측(0)과 우측(1)에 한 쌍으로 복제 배치
+            for col_idx in range(2):
+                grid_offset_x = col_idx * card_step_w
+                grid_offset_y = row_idx * card_step_h
+
+                # 개별 카드 컴포넌트 호출 (전달받은 실제 데이터를 칼같이 매핑)
+                draw_single_card_component(
+                    dwg=dwg,
+                    name=person['name'],
+                    name_code=person['name_code'],
+                    rt_code=person['rt_code'],
+                    offset_x=grid_offset_x,
+                    offset_y=grid_offset_y
+                )
+
+        # 4. 소스코드 미화 및 파일 저장 (Tab Size 4)
+        raw_svg_string = dwg.tostring()
+        parsed_xml = minidom.parseString(raw_svg_string)
+        pretty_svg_string = parsed_xml.toprettyxml(indent="    ")
+        
+        with open(filename, "w", encoding="utf-8") as f:
+            f.write(pretty_svg_string)
+            
+        print(f"📄 페이지 {page_idx + 1} 생성 완료: '{filename}' (실제 배치 인원: {len(page_data)}명)")
+
+def create_barcode_clean(): # test completed
     filename = "barcode_clean2.svg"
 
     dwg = svgwrite.Drawing(
@@ -188,4 +255,5 @@ def create_barcode_clean():
 
 
 if __name__ == "__main__":
-    create_barcode_clean()
+    csv_path = "Pickers - data.csv"
+    generate_barcode_pages_from_csv(csv_path)
