@@ -183,8 +183,8 @@ def generate_barcode_pages_from_csv(csv_file_path):
         reader = csv.DictReader(f)
         
         for row in reader:
-            # '출근 여부'가 '1'인 사람만 리스트에 담음
-            is_active = row.get('출근 여부', '').strip()
+            # '출력 여부'가 '1'인 사람만 리스트에 담음
+            is_active = row.get('출력 여부', '').strip()
             if is_active == '1':
                 # [수정 포인트] 롤테이너 코드를 숫자로만 처리하거나 8자리 고정 형태로 맞추기 위해
                 # zfill(8)을 사용해 입력값이 '1'이면 '00000001'로 포맷을 자동 변환합니다.

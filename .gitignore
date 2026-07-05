@@ -1,6 +1,10 @@
 card_env
+dist
+build
+*.spec
 storage
 PVC_Card_종건_test.svg
 *.code-workspace
 *.csv
 *.svg
+copy.ps1
