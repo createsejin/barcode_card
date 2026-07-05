@@ -1,6 +1,7 @@
 import glob
 import os
 import shutil
+import subprocess
 import sys
 import csv
 import svgwrite
@@ -255,6 +256,18 @@ def get_base_dir():
         return os.path.dirname(os.path.abspath(__file__))
 
 
+def open_explorer_at_base():
+    """현재 실행 파일이 있는 폴더를 파일 탐색기로 엽니다."""
+    base_dir = get_base_dir()
+    print(f"📂 파일 탐색기를 엽니다: {base_dir}")
+    try:
+        # os.startfile을 사용하면 윈도우 기본 파일 탐색기로 해당 폴더가 열립니다.
+        os.startfile(base_dir)
+    except Exception as e:
+        # 예외 상황 발생 시 subprocess로 explorer 실행 안전장치
+        subprocess.run(["explorer", base_dir])
+
+
 def get_target_download_dir(base_dir):
     """config.txt에서 download_folder= 값을 찾아 반환하거나 시스템 기본 경로를 반환합니다."""
     config_path = os.path.join(base_dir, "config.txt")
@@ -348,9 +361,14 @@ if __name__ == "__main__":
     args = set(sys.argv)
     base_dir = get_base_dir()
 
-    # -c 또는 --copy 명령어가 인자로 들어왔을 때
-    if {"-c", "--copy"} & args:
+    # 1. -p 또는 --path 명령어가 인자로 들어왔을 때 -> 탐색기 오픈
+    if {"-p", "--path"} & args:
+        open_explorer_at_base()
+
+    # 2. -c 또는 --copy 명령어가 인자로 들어왔을 때 -> 최신 CSV 복사
+    elif {"-c", "--copy"} & args:
         run_copy_tasks()
+
     else:
         # 기본 실행 시에는 실행 파일 바로 옆의 input_data.csv를 사용
         csv_path = os.path.join(base_dir, "input_data.csv")
