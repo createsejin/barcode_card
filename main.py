@@ -182,6 +182,41 @@ def generate_barcode_pages_from_csv(csv_file_path):
     card_step_w = 324.475 - stroke_w_px
     card_step_h = 203.566 - stroke_w_px
 
+    # [추가] 현재 csv 파일 위치 또는 실행 폴더 기준으로 output 폴더 경로 설정
+    # (앞서 메인 코드에서 실행 파일 기준 base_dir 경로를 전달하므로 완벽히 동기화됩니다)
+    base_dir = os.path.dirname(os.path.abspath(csv_file_path))
+    output_dir = os.path.join(base_dir, "output")
+
+    # [추가] output 폴더가 존재하지 않으면 자동으로 생성
+    os.makedirs(output_dir, exist_ok=True)
+
+    # 2. [추가] 기존 결과물(.svg) 존재 확인 및 사용자 삭제 질의 수행
+    existing_files = glob.glob(os.path.join(output_dir, "*.svg"))
+    if existing_files:
+        print(
+            f"⚠️  'output' 폴더에 이미 {len(existing_files)}개의 기존 결과물 파일이 존재합니다."
+        )
+        # 사용자 동의 구하기 (y/n)
+        user_input = (
+            input("🔄 기존 파일을 모두 삭제하고 새로 생성하시겠습니까? (y/n): ")
+            .strip()
+            .lower()
+        )
+
+        if user_input in ["y", "yes"]:
+            print("🧹 구버전 파일을 안전하게 삭제하는 중...")
+            for file_path in existing_files:
+                try:
+                    os.remove(file_path)
+                except Exception as e:
+                    print(
+                        f"❌ 파일 삭제 중 오류가 발생했습니다 ({os.path.basename(file_path)}): {e}"
+                    )
+            print("✅ 기존 파일 초기화 완료.")
+        else:
+            print("🛑 작업을 취소합니다. 기존 파일을 유지합니다.")
+            return  # 생성 작업을 하지 않고 함수 종료
+
     # 1. CSV 파일 읽기 및 데이터 필터링
     active_workers = []
 
@@ -214,9 +249,12 @@ def generate_barcode_pages_from_csv(csv_file_path):
 
     # 3. 페이지별 SVG 도화지 생성 및 배치 루프
     for page_idx, page_data in enumerate(chunked_pages):
+        # [수정] 파일명만 정의하던 방식에서 output 폴더를 포함한 전체 경로(Full Path)로 변경
         filename = f"barcode_page_{page_idx + 1}.svg"
+        full_output_path = os.path.join(output_dir, filename)
+
         dwg = svgwrite.Drawing(
-            filename, size=("210mm", "297mm"), viewBox="0 0 793.70076 1122.5197"
+            full_output_path, size=("210mm", "297mm"), viewBox="0 0 793.70076 1122.5197"
         )
 
         for row_idx, person in enumerate(page_data):
@@ -240,12 +278,25 @@ def generate_barcode_pages_from_csv(csv_file_path):
         parsed_xml = minidom.parseString(raw_svg_string)
         pretty_svg_string = parsed_xml.toprettyxml(indent="    ")
 
-        with open(filename, "w", encoding="utf-8") as f:
+        # [수정] open 함수도 정의된 전체 경로를 바라보도록 변경
+        with open(full_output_path, "w", encoding="utf-8") as f:
             f.write(pretty_svg_string)
 
         print(
-            f"📄 페이지 {page_idx + 1} 생성 완료: '{filename}' (실제 배치 인원: {len(page_data)}명)"
+            f"📄 페이지 {page_idx + 1} 생성 완료: '{filename}' (배치: {len(page_data)}명)"
         )
+    print(
+        f"\n🎉 모든 바코드 생성이 완료되었습니다! 총 {len(chunked_pages)}개 페이지 생성."
+    )
+
+    # 6. [추가] 생성 완료 후 output 폴더 자동으로 열기
+    try:
+        os.startfile(output_dir)
+    except Exception:
+        import subprocess
+
+        subprocess.run(["explorer", output_dir])
+
 
 
 def get_base_dir():
