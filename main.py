@@ -255,5 +255,5 @@ def create_barcode_clean(): # test completed
 
 
 if __name__ == "__main__":
-    csv_path = "Pickers - data.csv"
+    csv_path = "input_data.csv"
     generate_barcode_pages_from_csv(csv_path)
