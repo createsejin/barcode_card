@@ -1,16 +1,22 @@
+import argparse
 import glob
 import os
 import shutil
 import subprocess
 import sys
-import csv
 import svgwrite
-import sqlite3
 from barcode import Code128
 from barcode.writer import SVGWriter
 import xml.etree.ElementTree as ET
 from xml.dom import minidom
 
+from db_manager import (
+    fetch_active_workers_from_db,
+    db_list_workers,
+    db_reset_active,
+    db_set_active_by_pids,
+    db_search_worker,
+)
 
 def draw_inkscape_barcode(dwg, code, x, y, w, h):
     """
@@ -169,49 +175,6 @@ def draw_single_card_component(dwg, name, name_code, rt_code, offset_x, offset_y
         y=card_y + (231.96967 - base_card_y),
         font="NSimSun",
     )
-
-def fetch_active_workers_from_db(db_path):
-    """
-    SQLite 데이터베이스의 pickers 테이블에서 활성(is_active) 상태인 작업자 데이터를 조회합니다.
-    """
-    active_workers = []
-    
-    if not os.path.exists(db_path):
-        print(f"❌ 데이터베이스 파일을 찾을 수 없습니다: {db_path}")
-        return active_workers
-
-    try:
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row  # 컬럼 이름으로 접근 가능하게 설정
-        cursor = conn.cursor()
-
-        # is_active가 1인 데이터를 조회
-        query = """
-            SELECT worker_code, name, is_active, rolltainer_code 
-            FROM pickers 
-            WHERE is_active = 1
-        """
-        cursor.execute(query)
-        rows = cursor.fetchall()
-
-        for row in rows:
-            # 롤테이너 코드 파싱 (기존 zfill 로직 유지)
-            raw_rt_code = str(row["rolltainer_code"] or "").strip()
-            formatted_rt_code = (
-                raw_rt_code.zfill(8) if raw_rt_code.isdigit() else raw_rt_code
-            )
-
-            active_workers.append({
-                "name": str(row["name"] or "").strip(),
-                "name_code": str(row["worker_code"] or "").strip(),
-                "rt_code": formatted_rt_code,
-            })
-
-        conn.close()
-    except Exception as e:
-        print(f"🚨 SQLite 데이터 조회 중 오류 발생: {e}")
-
-    return active_workers
 
 def generate_barcode_pages_from_db(db_path):
     """
@@ -432,21 +395,38 @@ def run_copy_tasks():
 
 
 if __name__ == "__main__":
-    args = set(sys.argv)
     base_dir = get_base_dir()
+    db_path = r"D:\DataCenter\work_data.db"  # 필요에 따라 경로 설정
 
-    # 1. -p 또는 --path 명령어가 인자로 들어왔을 때 -> 탐색기 오픈
-    if {"-p", "--path"} & args:
+    parser = argparse.ArgumentParser(description="Picker Barcode Generator & DB Manager")
+    subparsers = parser.add_subparsers(dest="command", help="사용 가능한 명령어")
+
+    subparsers.add_parser("generate", help="is_active=1인 작업자들의 SVG 바코드 생성")
+    subparsers.add_parser("list", help="전체 작업자 목록 및 상태 조회")
+    subparsers.add_parser("reset", help="모든 작업자의 is_active를 0으로 초기화")
+
+    active_parser = subparsers.add_parser("active", help="지정한 PID들만 출근(1) 처리")
+    active_parser.add_argument("pids", nargs="+", type=int, help="활성화할 작업자의 PID 목록 (예: active 1 3 5)")
+
+    search_parser = subparsers.add_parser("search", help="이름 또는 코드로 작업자 검색")
+    search_parser.add_argument("keyword", type=str, help="검색할 이름 또는 코드")
+
+    parser.add_argument("-p", "--path", action="store_true", help="출력 폴더 열기")
+
+    args = parser.parse_args()
+
+    if args.path:
         open_explorer_at_base()
-
-    # 2. -c 또는 --copy 명령어가 인자로 들어왔을 때 -> 최신 CSV 복사
-    elif {"-c", "--copy"} & args:
-        run_copy_tasks()
-
+    elif args.command == "list":
+        db_list_workers(db_path)
+    elif args.command == "reset":
+        db_reset_active(db_path)
+    elif args.command == "active":
+        db_set_active_by_pids(db_path, args.pids)
+    elif args.command == "search":
+        db_search_worker(db_path, args.keyword)
     else:
-        # CSV 복사 로직 대신 SQLite DB 경로 직접 지정
-        db_path = r"D:\DataCenter\work_data.db"
-
+        # 인자 없이 실행 시 기본 바코드 생성 동작
         if os.path.exists(db_path):
             generate_barcode_pages_from_db(db_path)
         else:
