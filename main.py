@@ -5,6 +5,7 @@ import subprocess
 import sys
 import csv
 import svgwrite
+import sqlite3
 from barcode import Code128
 from barcode.writer import SVGWriter
 import xml.etree.ElementTree as ET
@@ -169,11 +170,52 @@ def draw_single_card_component(dwg, name, name_code, rt_code, offset_x, offset_y
         font="NSimSun",
     )
 
-
-def generate_barcode_pages_from_csv(csv_file_path):
+def fetch_active_workers_from_db(db_path):
     """
-    롤테이너 코드가 포함된 CSV 파일을 읽어 출근 여부가 1인 작업자만
-    필터링하여 2x5 배열 페이지를 생성하는 함수
+    SQLite 데이터베이스의 pickers 테이블에서 활성(is_active) 상태인 작업자 데이터를 조회합니다.
+    """
+    active_workers = []
+    
+    if not os.path.exists(db_path):
+        print(f"❌ 데이터베이스 파일을 찾을 수 없습니다: {db_path}")
+        return active_workers
+
+    try:
+        conn = sqlite3.connect(db_path)
+        conn.row_factory = sqlite3.Row  # 컬럼 이름으로 접근 가능하게 설정
+        cursor = conn.cursor()
+
+        # is_active가 1인 데이터를 조회
+        query = """
+            SELECT worker_code, name, is_active, rolltainer_code 
+            FROM pickers 
+            WHERE is_active = 1
+        """
+        cursor.execute(query)
+        rows = cursor.fetchall()
+
+        for row in rows:
+            # 롤테이너 코드 파싱 (기존 zfill 로직 유지)
+            raw_rt_code = str(row["rolltainer_code"] or "").strip()
+            formatted_rt_code = (
+                raw_rt_code.zfill(8) if raw_rt_code.isdigit() else raw_rt_code
+            )
+
+            active_workers.append({
+                "name": str(row["name"] or "").strip(),
+                "name_code": str(row["worker_code"] or "").strip(),
+                "rt_code": formatted_rt_code,
+            })
+
+        conn.close()
+    except Exception as e:
+        print(f"🚨 SQLite 데이터 조회 중 오류 발생: {e}")
+
+    return active_workers
+
+def generate_barcode_pages_from_db(db_path):
+    """
+    SQLite DB에서 활성 작업자 데이터를 읽어 2x5 배열 페이지를 생성하는 함수
     """
     MM_TO_PX = 3.77952756
     stroke_w_px = 0.099 * MM_TO_PX  # 약 0.37417 px
@@ -184,7 +226,7 @@ def generate_barcode_pages_from_csv(csv_file_path):
 
     # [추가] 현재 csv 파일 위치 또는 실행 폴더 기준으로 output 폴더 경로 설정
     # (앞서 메인 코드에서 실행 파일 기준 base_dir 경로를 전달하므로 완벽히 동기화됩니다)
-    base_dir = os.path.dirname(os.path.abspath(csv_file_path))
+    base_dir = get_base_dir()
     output_dir = os.path.join(base_dir, "output")
 
     # [추가] output 폴더가 존재하지 않으면 자동으로 생성
@@ -217,30 +259,11 @@ def generate_barcode_pages_from_csv(csv_file_path):
             print("🛑 작업을 취소합니다. 기존 파일을 유지합니다.")
             return  # 생성 작업을 하지 않고 함수 종료
 
-    # 1. CSV 파일 읽기 및 데이터 필터링
-    active_workers = []
-
-    with open(csv_file_path, mode="r", encoding="utf-8") as f:
-        reader = csv.DictReader(f)
-
-        for row in reader:
-            # '출력 여부'가 '1'인 사람만 리스트에 담음
-            is_active = row.get("출력 여부", "").strip()
-            if is_active == "1":
-                # [수정 포인트] 롤테이너 코드를 숫자로만 처리하거나 8자리 고정 형태로 맞추기 위해
-                # zfill(8)을 사용해 입력값이 '1'이면 '00000001'로 포맷을 자동 변환합니다.
-                raw_rt_code = row.get("롤테이너 코드", "").strip()
-                formatted_rt_code = (
-                    raw_rt_code.zfill(8) if raw_rt_code.isdigit() else raw_rt_code
-                )
-
-                active_workers.append(
-                    {
-                        "name": row.get("성명", "").strip(),
-                        "name_code": row.get("작업자 코드", "").strip(),
-                        "rt_code": formatted_rt_code,  # ◀ 파싱 및 변환된 롤테이너 코드 적용
-                    }
-                )
+    # 1. DB에서 활성 작업자 데이터 필터링 로드
+    active_workers = fetch_active_workers_from_db(db_path)
+    if not active_workers:
+        print("⚠️ 출력할 활성 작업자(is_active = 1)가 없습니다.")
+        return
 
     # 2. 데이터를 5명씩 분할 (한 페이지당 세로 5줄 배치)
     chunked_pages = [
@@ -421,10 +444,10 @@ if __name__ == "__main__":
         run_copy_tasks()
 
     else:
-        # 기본 실행 시에는 실행 파일 바로 옆의 input_data.csv를 사용
-        csv_path = os.path.join(base_dir, "input_data.csv")
-        if os.path.exists(csv_path):
-            generate_barcode_pages_from_csv(csv_path)
+        # CSV 복사 로직 대신 SQLite DB 경로 직접 지정
+        db_path = r"D:\DataCenter\work_data.db"
+
+        if os.path.exists(db_path):
+            generate_barcode_pages_from_db(db_path)
         else:
-            print(f"❌ 실행을 위한 '{csv_path}' 파일이 없습니다.")
-            print("💡 먼저 'barcode -c' 명령어로 데이터를 가져오세요.")
+            print(f"❌ 데이터베이스 파일이 존재하지 않습니다: {db_path}")
